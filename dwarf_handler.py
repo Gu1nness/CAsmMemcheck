@@ -39,6 +39,9 @@ def create_variables(file):
 
 
 class Tag():
+    """The base class defining a DW_TAG_* structure, with a simple
+    representation method.
+    """
     def __init__():
         return
 
@@ -54,6 +57,11 @@ class Tag():
 
 
 class CompileUnitTree():
+    """ A compile unit, described as a tree. Should contain all the necessary
+    information : subprograms, structures, etc.
+    Provides many public methods in order to perform IP lookup, variable
+    location computation, etc.
+    """
     def __init__(self, compile_unit, dwarfinfo):
         self.tag = "DW_TAG_compile_unit"
         self.structures = []

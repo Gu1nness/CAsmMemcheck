@@ -1,0 +1,3 @@
+[submodule "CInterpreter"]
+	path = CInterpreter
+	url = git@github.com:SKantar/CInterpreter.git
