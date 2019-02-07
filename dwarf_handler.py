@@ -66,6 +66,8 @@ class CompileUnitTree():
         self.tag = "DW_TAG_compile_unit"
         self.structures = []
         self.subprograms = {}
+        self.res_start = {}
+        self.res_end = {}
         cu = compile_unit.get_top_DIE()
         for die in cu.iter_children():
             # Go over all attributes of the DIE. Each attribute is an
@@ -82,6 +84,8 @@ class CompileUnitTree():
                         self.subprograms[subprog][variable.name] = variable
             elif die.tag == "DW_TAG_structure_type":
                 self.structures.append(Structure(die))
+        for prog in self.subprograms:
+            self._compile_locations_changes(prog)
 
 
     def __repr__(self):
@@ -105,9 +109,28 @@ class CompileUnitTree():
                     variable in var_list}
 
 
-    def _compile_variable_locations(self, subprogram):
+    def _compile_locations_changes(self, subprogram):
         """ Compiles the variable locations for a subprogram.
         """
+        def __update_res(res, val, var):
+            if res.get(val, None):
+                res[val].append(var)
+            else:
+                res[val] = [var]
+        self.res_start.clear()
+        self.res_start.clear()
+        subprog = self.subprograms[subprogram]
+        variables = self._get_variables_locations(subprogram)
+        low_pc = subprogram.low_pc
+        for variable in variables:
+            answer, dynamic = variables[variable]
+            if dynamic:
+                for var in answer:
+                    low = low_pc.value + var.begin_offset
+                    __update_res(self.res_start, low, subprog[variable])
+                    high = low_pc.value + var.end_offset
+                    __update_res(self.res_end, high, subprog[variable])
+
 
 class SubProgram(Tag):
     """ Describes a DW_TAB_subprogram.
@@ -120,9 +143,9 @@ class SubProgram(Tag):
             if attr.name == "DW_AT_frame_base":
                 self.frame_base = attr
             elif attr.name == "DW_AT_low_pc":
-                self.low_pc= attr
+                self.low_pc = attr
             elif attr.name == "DW_AT_high_pc":
-                self.high_pc= attr
+                self.high_pc = attr
             elif attr.name == "DW_AT_decl_line":
                 self.decl_line = attr.value
 
@@ -137,7 +160,7 @@ class Variable(Tag):
                 self.name = attr.value.decode('utf-8')
             if attribute_has_location_list(attr,
                                            version):
-                self.at_location= loc_lists.get_location_list_at_offset(attr.value)
+                self.at_location = loc_lists.get_location_list_at_offset(attr.value)
                 self.form = 'sec_offset'
             elif attr.name == "DW_AT_location":
                 self.at_location = attr
@@ -146,7 +169,7 @@ class Variable(Tag):
                 self.decl_line = attr.value
 
     def lookup_location_updates(self):
-            return self.at_location, self.form == 'sec_offset'
+        return self.at_location, self.form == 'sec_offset'
 
 
 class Member(Tag):
@@ -266,7 +289,7 @@ class DInfo():
         ret_list = []
         for cu in self._link_points:
             ret_list.extend(self._link_points[cu])
-        return(ret_list)
+        return ret_list
 
 def attribute_has_location_list(attr, version):
     """ Only some attributes can have location list values, if they have the
