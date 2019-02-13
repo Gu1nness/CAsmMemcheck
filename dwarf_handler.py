@@ -308,8 +308,3 @@ def attribute_has_location_list(attr, version):
             if attr.form is 'DW_FORM_sec_offset':
                 return True
     return False
-
-if __name__ == '__main__':
-    if sys.argv[1] == '--test':
-        for filename in sys.argv[2:]:
-            process_file(filename)
