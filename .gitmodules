@@ -1,3 +1,6 @@
 [submodule "CInterpreter"]
 	path = CInterpreter
 	url = git@github.com:SKantar/CInterpreter.git
+[submodule "AsmInterpreter"]
+	path = AsmInterpreter
+	url = git@github.com:Gu1nness:AsmInterpreter.git
