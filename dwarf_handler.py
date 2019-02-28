@@ -4,14 +4,9 @@ author : Rémi Oudin <oudin@crans.org>
 license : GPLv3
 """
 
-import sys
-
 from elftools.common.py3compat import itervalues
 from elftools.elf.elffile import ELFFile
-from elftools.dwarf.descriptions import describe_DWARF_expr
-from elftools.dwarf.descriptions import _EXTRA_INFO_DESCRIPTION_MAP
 from elftools.dwarf.descriptions import set_global_machine_arch
-from elftools.dwarf.locationlists import LocationEntry
 
 DWARF_VALUES = {
     0x91 : "rbp",
@@ -77,10 +72,12 @@ class Tag():
     """The base class defining a DW_TAG_* structure, with a simple
     representation method.
     """
-    def __init__():
-        return
+    def __init__(self):
+        self.tag = ""
 
     def __repr__(self):
+        """ Representation of a Tag.
+        """
         string = 'DIE %s\n' % self.tag
         for key in self.__dict__:
             if key != 'tag':
@@ -103,8 +100,8 @@ class CompileUnitTree():
         self.subprograms = {}
         self.res_start = {}
         self.res_end = {}
-        cu = compile_unit.get_top_DIE()
-        for die in cu.iter_children():
+        cu_root = compile_unit.get_top_DIE()
+        for die in cu_root.iter_children():
             # Go over all attributes of the DIE. Each attribute is an
             # AttributeValue object (from elftools.dwarf.die), which we
             # can examine.
@@ -119,11 +116,15 @@ class CompileUnitTree():
                         self.subprograms[subprog][variable.name] = variable
             elif die.tag == "DW_TAG_structure_type":
                 self.structures.append(Structure(die))
-        for prog in self.subprograms:
-            self._compile_locations_changes(prog)
+
+    @property
+    def get_structs(self):
+        return {struct.type : struct for struct in self.structures}
 
 
     def __repr__(self):
+        """ Representation of a CompileUnitTree.
+        """
         string = "DIE %s\n" % self.tag
         for struct in self.structures:
             string += struct.__repr__()
@@ -134,43 +135,14 @@ class CompileUnitTree():
                 string += sub_prog_vars[key].__repr__()
         return string
 
-    def _get_variables_locations(self, subprogram):
-        """ Gets the locations or location lists of the variables of a
-        subprogram.
-        """
-        if self.subprograms.get(subprogram, None):
-            var_list = self.subprograms[subprogram]
-            return {variable : var_list[variable].lookup_location_updates() for
-                    variable in var_list}
 
-
-    def _compile_locations_changes(self, subprogram):
-        """ Compiles the variable locations for a subprogram.
-        """
-        def __update_res(res, val, var):
-            if res.get(val, None):
-                res[val].append(var)
-            else:
-                res[val] = [var]
-        self.res_start.clear()
-        self.res_start.clear()
-        subprog = self.subprograms[subprogram]
-        variables = self._get_variables_locations(subprogram)
-        low_pc = subprogram.low_pc
-        for variable in variables:
-            answer, dynamic = variables[variable]
-            if dynamic:
-                for var in answer:
-                    low = low_pc.value + var.begin_offset
-                    __update_res(self.res_start, low, subprog[variable])
-                    high = low_pc.value + var.end_offset
-                    __update_res(self.res_end, high, subprog[variable])
 
 
 class SubProgram(Tag):
     """ Describes a DW_TAB_subprogram.
     """
     def __init__(self, die):
+        Tag.__init__(self)
         self.tag = die.tag
         for attr in itervalues(die.attributes):
             if attr.name == "DW_AT_name":
@@ -187,12 +159,15 @@ class SubProgram(Tag):
 
     @property
     def variables(self):
+        """ Returns the variables of the current subprogram object.
+        """
         return self._variables
 
 class Variable(Tag):
     """ Describes a DW_TAG_variable.
     """
     def __init__(self, die, dwarfinfo, version):
+        Tag.__init__(self)
         self.tag = die.tag
         loc_lists = dwarfinfo.location_lists()
         for attr in itervalues(die.attributes):
@@ -207,15 +182,20 @@ class Variable(Tag):
                 self.form = 'exprloc'
             elif attr.name == "DW_AT_decl_line":
                 self.decl_line = attr.value
+            elif attr.name == "DW_AT_type":
+                self.type = attr.value
 
     def lookup_location_updates(self):
+        """ Lookup for a location update.
+        """
         return self.at_location, self.form == 'sec_offset'
 
     def find_entry(self, addr, start):
+        """ Find the location list entry corresponding to the address.
+        """
         if isinstance(self.at_location, list):
             for location in self.at_location:
-                sys.stderr.write("%s\n" % self)
-                if start + location.begin_offset <= addr and start + location.end_offset >= addr:
+                if start + location.begin_offset <= addr <= start + location.end_offset:
                     return location
         else:
             return self.at_location.value
@@ -226,6 +206,7 @@ class Member(Tag):
     """ Describes a DW_TAG_member.
     """
     def __init__(self, die):
+        Tag.__init__(self)
         self.tag = die.tag
         for attr in itervalues(die.attributes):
             if attr.name == "DW_AT_name":
@@ -240,8 +221,11 @@ class Structure(Tag):
     """ Describes a DW_TAG_structure.
     """
     def __init__(self, die):
+        Tag.__init__(self)
         self.tag = die.tag
         self.members = []
+        self.size = die.size // 4
+        self.type = die.offset
         for attr in itervalues(die.attributes):
             if attr.name == "DW_AT_name":
                 self.name = attr.value.decode('utf-8')
@@ -256,7 +240,7 @@ class Structure(Tag):
     def __repr__(self):
         string = 'DIE %s\n' % self.tag
         for key in self.__dict__:
-            if key != 'tag' and key != "members":
+            if key not in ('tag', "members",):
                 string += "\t|DW_AT_%-22s:   %s\n" % (key, self.__dict__[key])
         for member in self.members:
             string += member.__repr__()
@@ -266,6 +250,10 @@ class Structure(Tag):
         return self.__repr__()
 
 class LineEntry():
+    """ Describes a line entry of the DWARF information.
+    It contains inter alia the line, column, and file corresponding to a
+    program counter.
+    """
     def __init__(self, line_program):
         self.address = line_program.state.address
         self.file = line_program.state.file
@@ -279,6 +267,8 @@ class LineEntry():
         self.isa = line_program.state.isa
 
     def __repr__(self):
+        """ Representation of a line entry.
+        """
         string = "Link Point 0x%x:\n" % id(self.address)
         string += '\t|%-22s:    0x%x\n' % ('address', self.address)
         for i in ['file', 'line', 'column']:
@@ -286,12 +276,19 @@ class LineEntry():
         return string
 
     def __str__(self):
+        """ Str representation of a line entry.
+        """
         return self.__repr__()
 
     def get_info(self):
+        """ Returns a tuple containing a program counter and the corresponding
+        tuple (line, column).
+        """
         return (self.address, (self.line, self.column))
 
 class DInfo():
+    """ The main class. It contains all the debug info for a file.
+    """
     def __init__(self, file):
         self.compile_units = {}
         self._link_points = {}
@@ -319,19 +316,32 @@ class DInfo():
                        key=lambda x: x.address)
 
     def __repr__(self):
+        """ Representation of the DInfo class.
+        """
         string = ""
-        for cu in self.compile_units:
-            string += self.compile_units[cu].__repr__()
+        for compile_unit in self.compile_units:
+            string += self.compile_units[compile_unit].__repr__()
         for cu_link in self._link_points:
             for link_point in self._link_points[cu_link]:
                 string += link_point.__repr__()
         return string
 
     def get_variables(self, subprogram):
+        """ Gets the variables linked to a subprogram.
+        """
         for cu_tree in self.compile_units:
             for subprog in self.compile_units[cu_tree].subprograms:
                 if subprogram == subprog.name:
                     return self.compile_units[cu_tree].subprograms[subprog]
+        return None
+
+    def get_structs(self, subprogram):
+        """ Gets the structs linked to a subprogram.
+        """
+        res = {}
+        for cu_tree in self.compile_units:
+            res.update(self.compile_units[cu_tree].get_structs)
+        return res
 
 
     def __get_lines(self, compile_unit):
@@ -343,16 +353,17 @@ class DInfo():
 
     @property
     def link_points(self):
+        """ Property method that returns all the link points.
+        """
         ret_list = []
-        for cu in self._link_points:
-            ret_list.extend(self._link_points[cu])
+        for compile_unit in self._link_points:
+            ret_list.extend(self._link_points[compile_unit])
         return ret_list
 
 def attribute_has_location_list(attr, version):
     """ Only some attributes can have location list values, if they have the
         required DW_FORM (loclistptr "class" in DWARF spec v3)
     """
-    #print("Attr %s: %s" % (attr.name, attr.form))
     if (attr.name in ('DW_AT_location', 'DW_AT_string_length',
                       'DW_AT_const_value', 'DW_AT_return_addr',
                       'DW_AT_data_member_location', 'DW_AT_frame_base',
@@ -362,6 +373,6 @@ def attribute_has_location_list(attr, version):
             if attr.form in ('DW_FORM_data4', 'DW_FORM_data8'):
                 return True
         elif version == 4:
-            if attr.form is 'DW_FORM_sec_offset':
+            if attr.form == 'DW_FORM_sec_offset':
                 return True
     return False
