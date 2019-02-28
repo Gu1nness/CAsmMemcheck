@@ -124,13 +124,13 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
                     if isinstance(value[val], int):
                         res &= value[val] == asm_value[i]
                     else:
-                        res &= value[val].value == asm_value[i]
+                        res &= value[val].val == asm_value[i]
                     i += 1
             else:
                 if isinstance(value, int):
                     res &= (asm_value[0] == value)
                 else:
-                    res &= (asm_value[0] == value.value)
+                    res &= (asm_value[0] == value.val)
         else:
             res = False
         if not res:
