@@ -11,7 +11,6 @@ DWARF validator:
 import threading
 from argparse import ArgumentParser
 from copy import deepcopy
-import sys
 
 from AsmInterpreter.interpreter.lexical_analysis.lexer import Lexer as AsmLexer
 from AsmInterpreter.interpreter.syntax_analysis.parser import Parser as AsmParser
