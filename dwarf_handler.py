@@ -13,6 +13,41 @@ from elftools.dwarf.descriptions import _EXTRA_INFO_DESCRIPTION_MAP
 from elftools.dwarf.descriptions import set_global_machine_arch
 from elftools.dwarf.locationlists import LocationEntry
 
+DWARF_VALUES = {
+    0x91 : "rbp",
+    0x93 : "DW_OP_piece",
+    0x10 : "DW_OP_constu",
+    0x11 : "DW_OP_consts",
+    0x9f : "DW_OP_stack_value",
+    0x50 : "rax",
+    0x51 : "rbx",
+    0x52 : "rcx",
+    0x53 : "rdx",
+    0x54 : "rdi",
+    0x55 : "rsi",
+    0x56 : "rbp",
+    0x57 : "rsp",
+    0x58 : "r8",
+    0x59 : "r9",
+    0x5a : "r10",
+    0x5b : "r11",
+    0x5c : "r12",
+    0x5d : "r13",
+    0x5e : "r14",
+    0x5f : "r15",
+    0x60 : "rip",
+    0x61 : "rflags",
+    0x62 : "cs",
+    0x63 : "orig_rax",
+    0x64 : "fs_base",
+    0x65 : "gs_base",
+    0x66 : "fs",
+    0x67 : "gs",
+    0x68 : "ss",
+    0x69 : "ds",
+    0x6a : "es",
+}
+
 def create_variables(file):
     """ Creates all the variables of the DWARF info.
     """
@@ -148,6 +183,11 @@ class SubProgram(Tag):
                 self.high_pc = attr
             elif attr.name == "DW_AT_decl_line":
                 self.decl_line = attr.value
+        self._variables = {}
+
+    @property
+    def variables(self):
+        return self._variables
 
 class Variable(Tag):
     """ Describes a DW_TAG_variable.
@@ -170,6 +210,16 @@ class Variable(Tag):
 
     def lookup_location_updates(self):
         return self.at_location, self.form == 'sec_offset'
+
+    def find_entry(self, addr, start):
+        if isinstance(self.at_location, list):
+            for location in self.at_location:
+                sys.stderr.write("%s\n" % self)
+                if start + location.begin_offset <= addr and start + location.end_offset >= addr:
+                    return location
+        else:
+            return self.at_location.value
+        return None
 
 
 class Member(Tag):
@@ -239,7 +289,7 @@ class LineEntry():
         return self.__repr__()
 
     def get_info(self):
-        return {self.address : (self.line, self.column)}
+        return (self.address, (self.line, self.column))
 
 class DInfo():
     def __init__(self, file):
@@ -276,6 +326,13 @@ class DInfo():
             for link_point in self._link_points[cu_link]:
                 string += link_point.__repr__()
         return string
+
+    def get_variables(self, subprogram):
+        for cu_tree in self.compile_units:
+            for subprog in self.compile_units[cu_tree].subprograms:
+                if subprogram == subprog.name:
+                    return self.compile_units[cu_tree].subprograms[subprog]
+
 
     def __get_lines(self, compile_unit):
         """ Gets the link points for the provided compile unit, and returns it
