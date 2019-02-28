@@ -10,6 +10,7 @@ DWARF validator:
 
 import threading
 from argparse import ArgumentParser
+from copy import deepcopy
 import sys
 
 from AsmInterpreter.interpreter.lexical_analysis.lexer import Lexer as AsmLexer
@@ -24,7 +25,7 @@ from CInterpreter.interpreter.semantic_analysis.analyzer import SemanticAnalyzer
 from CInterpreter.interpreter.interpreter.interpreter import Interpreter as CInterpreter
 from CInterpreter.interpreter.interpreter.interpreter import CQueue
 
-from dwarf_handler import DInfo
+from dwarf_handler import DInfo, DWARF_VALUES
 
 def asm_tree(file, functions):
     text = open(file, 'r').readlines()
@@ -34,10 +35,10 @@ def asm_tree(file, functions):
     semantic = AsmAnalyzer.analyze(tree)
     return tree
 
-def asm_worker(tree, b_points):
+def asm_worker(tree, bpoints):
     """ The thread worker for the assembly interpreter
     """
-    interpreter = AsmInterpreter(b_points)
+    interpreter = AsmInterpreter(bpoints)
     interpreter.interpret(tree)
 
 def c_worker(tree, b_points):
@@ -63,10 +64,51 @@ def getter(queue, thread):
         mem = queue.get(block=True)
         return mem
 
-def compare_mems(c_mem, asm_mem, dwarf_info):
+def parse_loc_expr(locexpr, asm_mem):
+    res = []
+    current = -1
+    local_locexpr = deepcopy(locexpr)
+    while True:
+        if local_locexpr:
+            value = local_locexpr.pop(0)
+            if value in [0x10, 0x11]:
+                current = local_locexpr.pop(0)
+            elif value == 0x93:
+                res.append(current)
+                _ = local_locexpr.pop(0)
+            elif value == 0x91:
+                offset = local_locexpr.pop(0) - 128
+                addr = asm_mem.registers[DWARF_VALUES[0x91]] + offset
+                res.append(asm_mem.stack[addr])
+            elif value == 0x9f:
+                continue
+            elif 0x50 <= value and value <= 0x6f:
+                current= asm_mem.registers[DWARF_VALUES[value]]
+        else:
+            break
+    return res
+
+
+def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
     """ Compares the two memory state.
     """
-    return True
+    res = True
+    variables = c_mem.keys()
+    variables = [var for var in variables if var not in functions]
+    function = c_mem.stack.current_frame.frame_name
+    start = asm_mem[function]
+    c_values = {key : c_mem[key] for key in variables}
+    variables = dwarf_info.get_variables(function)
+    for (variable, value) in c_values.items():
+        if "." in variable:
+            sub_var = variables.split(".")[0]
+        variable_expr = variables[variable]
+        locexpr = variable_expr.find_entry(addr, start)
+        if locexpr:
+            value = parse_loc_expr(locexpr, asm_mem)
+        else:
+            res = False
+    return res
 
 def check_bpoint(addr, line, column, bpoints):
     for bpoint in bpoints:
@@ -86,7 +128,7 @@ def main(file_c, file_asm, file_compiled):
     for var in filter(lambda o: isinstance(o , FunctionDecl), ctree.children):
         functions.append(var.func_name)
     asmtree = asm_tree(file_asm, functions)
-    thread_asm = threading.Thread(target=asm_worker, args=(asmtree, asm_bpoints,))
+    thread_asm = threading.Thread(target=asm_worker, args=(asmtree, asm_bpoints))
 
     thread_asm.daemon = True
     thread_c.daemon = True
@@ -101,13 +143,19 @@ def main(file_c, file_asm, file_compiled):
             c_ret = getter(CQueue, thread_c)
             if c_ret:
                 (c_bpoint, c_mem) = c_ret
-                print("%s %s" % (asm_bpoint, c_bpoint))
-                if check_bpoint(asm_bpoint, c_bpoint[0], c_bpoint[1], break_points):
-                    print("Checked")
-                    result &= compare_mems(c_mem, asm_mem, dwarf_info)
+                if check_bpoint(asm_bpoint, c_bpoint[0], c_bpoint[1],
+                                break_points):
+                    result &= compare_mems(asm_bpoint, c_mem, asm_mem, dwarf_info, functions)
+                    if not result:
+                        print(asm_bpoint)
+                        print()
+                        print("C Memory")
+                        print(c_mem)
+                        print()
+                        print("ASM Memory")
+                        print(asm_mem)
         if not thread_c.is_alive() and not thread_asm.is_alive() and CQueue.empty() and AsmQueue.empty():
             break
-    print(result)
     return result
 
 if __name__ == "__main__":
@@ -117,4 +165,7 @@ if __name__ == "__main__":
     PARSER.add_argument("file_compiled", help="The compiled file")
 
     ARGS = PARSER.parse_args()
-    main(ARGS.file_c, ARGS.file_asm, ARGS.file_compiled)
+    if main(ARGS.file_c, ARGS.file_asm, ARGS.file_compiled):
+        exit(0)
+    else:
+        exit(255)
