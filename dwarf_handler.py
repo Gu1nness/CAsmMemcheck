@@ -116,10 +116,15 @@ class CompileUnitTree():
                         self.subprograms[subprog][variable.name] = variable
             elif die.tag == "DW_TAG_structure_type":
                 self.structures.append(Structure(die))
+            elif die.tag == "DW_TAG_base_type":
+                self.base_type = die.offset
 
     @property
     def get_structs(self):
         return {struct.type : struct for struct in self.structures}
+
+    def get_type_offset(self):
+        return self.base_type
 
 
     def __repr__(self):
@@ -224,13 +229,15 @@ class Structure(Tag):
         Tag.__init__(self)
         self.tag = die.tag
         self.members = []
-        self.size = die.size // 4
         self.type = die.offset
         for attr in itervalues(die.attributes):
             if attr.name == "DW_AT_name":
                 self.name = attr.value.decode('utf-8')
             elif attr.name == "DW_AT_decl_line":
                 self.decl_line = attr.value
+            elif attr.name == "DW_AT_byte_size":
+                self.size = attr.value // 4
+                print(self.size)
         for member in die.iter_children():
             self.__add_member(member)
 
@@ -341,6 +348,14 @@ class DInfo():
         res = {}
         for cu_tree in self.compile_units:
             res.update(self.compile_units[cu_tree].get_structs)
+        return res
+
+    def get_type(self):
+        """ Get the type offset
+        """
+        res = []
+        for cu_tree in self.compile_units:
+            res.append(self.compile_units[cu_tree].get_type_offset())
         return res
 
 
