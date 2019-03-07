@@ -102,6 +102,8 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
     """ Compares the two memory state.
     """
     res = True
+    asm_value = None
+    locexpr = None
     variables = c_mem.keys()
     variables = [var for var in variables if var not in functions]
     function = c_mem.stack.current_frame.frame_name
@@ -110,17 +112,19 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
     variables = dwarf_info.get_variables(function)
     for (variable, value) in c_values.items():
         variable_expr = variables[variable]
-        struct = dwarf_info.get_structs(function).get(variable_expr.type, None)
-        if variable_expr.type != 124:
+        struct = dwarf_info.get_structs(function)
+        struct = struct.get(variable_expr.type, None)
+        type_offsets = dwarf_info.get_type()
+        if variable_expr.type not in type_offsets:
             size = struct.size
         else:
             size = 1
-        locexpr = variable_expr.find_entry(addr, start)
+        locexpr = variable_expr.find_entry(addr, start._start)
         if locexpr:
             asm_value = parse_loc_expr(locexpr, asm_mem, size)
             if isinstance(value, dict):
                 i = 0
-                for val in value:
+                for val in sorted(value.keys()):
                     if isinstance(value[val], int):
                         res &= value[val] == asm_value[i]
                     else:
@@ -134,9 +138,18 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
         else:
             res = False
         if not res:
-            print("0x%08x %s" % (addr, locexpr))
-            print(asm_mem.registers['rbp'])
-            print(variable, asm_value, value)
+            print("Error at 0x%08x" % addr)
+            if not locexpr:
+                print("No location information for variable %s" % variable)
+            else:
+                print("Invalid values for variable %s :" % (variable))
+                print(" Assembly : %s" % asm_value)
+                if isinstance(value, int):
+                    print(" C        : %s" % value)
+                elif isinstance(value, dict):
+                    print(" c        : %s" % value)
+                else:
+                    print(" c        : %s" % value.val)
             return False
             #break
     return res
@@ -185,8 +198,7 @@ def main(file_c, file_asm, file_compiled):
                                 break_points):
                     result &= compare_mems(asm_bpoint, c_mem, asm_mem, dwarf_info, functions)
                     if not result:
-                        print("Error")
-                        print(asm_bpoint)
+                        print("Error at location %08x" % asm_bpoint)
                         print()
                         print("C Memory")
                         print(c_mem)
@@ -207,6 +219,8 @@ if __name__ == "__main__":
 
     ARGS = PARSER.parse_args()
     if main(ARGS.file_c, ARGS.file_asm, ARGS.file_compiled):
+        print("%s OK" % ARGS.file_c)
         exit(0)
     else:
+        print("%s BAD" % ARGS.file_c)
         exit(255)
