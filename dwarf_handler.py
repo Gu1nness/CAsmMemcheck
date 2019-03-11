@@ -6,11 +6,13 @@ license : GPLv3
 
 from elftools.common.py3compat import itervalues
 from elftools.elf.elffile import ELFFile
+from elftools.dwarf.callframe import CIE, FDE, ZERO
 from elftools.dwarf.descriptions import set_global_machine_arch
 
 DWARF_VALUES = {
-    0x91 : "rbp",
+    0x91 : "at_frame",
     0x93 : "DW_OP_piece",
+    0x9c : "DW_OP_call_frame_cfa",
     0x10 : "DW_OP_constu",
     0x11 : "DW_OP_consts",
     0x9f : "DW_OP_stack_value",
@@ -126,6 +128,15 @@ class CompileUnitTree():
     def get_type_offset(self):
         return self.base_type
 
+    def get_subprog(self, function):
+        for subprog in self.subprograms:
+            if isinstance(function, str):
+                if subprog.name == function:
+                    return subprog
+            else:
+                if subprog.name == function.name:
+                    return subprog
+        return None
 
     def __repr__(self):
         """ Representation of a CompileUnitTree.
@@ -237,7 +248,6 @@ class Structure(Tag):
                 self.decl_line = attr.value
             elif attr.name == "DW_AT_byte_size":
                 self.size = attr.value // 4
-                print(self.size)
         for member in die.iter_children():
             self.__add_member(member)
 
@@ -255,6 +265,53 @@ class Structure(Tag):
 
     def __str__(self):
         return self.__repr__()
+
+class CFAEntries():
+    """Lists all the CFA entries along with the offsets"""
+
+    _registers = {
+        0 : "rax",
+        1 : "rbx",
+        2 : "rcx",
+        3 : "rdx",
+        4 : "rsi",
+        5 : "rdi",
+        6 : "rsp",
+        7 : "rbp",
+    }
+
+    def __init__(self, cfi):
+        self.cfa = {}
+        for item in cfi:
+            if isinstance(item, (ZERO, CIE)):
+                continue
+            else:
+                decoded = item.get_decoded()
+                for val in decoded.table:
+                    self.cfa[val['pc']] = val['cfa']
+
+    def interpret(self, entry):
+        current = 0
+        item = None
+        for pc in sorted(self.cfa.keys()):
+            if self.cfa.get(entry, False):
+                item = self.cfa[entry]
+                break
+            elif entry < pc:
+                item = self.cfa[current]
+                break
+            current = pc
+        if not(item.expr):
+            return (CFAEntries._registers.get(item.reg, None), item.offset)
+        else:
+            return item.expr
+
+    def __str__(self):
+        tplt = "0x%08x : %s, offset %s"
+        res = "\n".join([tplt % (key, CFAEntries._registers[item.reg], item.offset) \
+                         for (key, item) in self.cfa.items()])
+        return res
+
 
 class LineEntry():
     """ Describes a line entry of the DWARF information.
@@ -314,6 +371,9 @@ class DInfo():
             # register names contained in DWARF expressions.
             set_global_machine_arch(elffile.get_machine_arch())
 
+            if self.dwarfinfo.has_EH_CFI():
+                self.cfa_entries = CFAEntries(self.dwarfinfo.EH_CFI_entries())
+
             for compile_unit in self.dwarfinfo.iter_CUs():
                 # A CU provides a simple API to iterate over all the DIEs in it.
                 self.compile_units[compile_unit] = CompileUnitTree(compile_unit,
@@ -350,6 +410,13 @@ class DInfo():
             res.update(self.compile_units[cu_tree].get_structs)
         return res
 
+    def get_subprog(self, function):
+        #print(self.compile_units.values())
+        for cu_tree in self.compile_units.values():
+            res = cu_tree.get_subprog(function)
+            if res:
+                return res
+
     def get_type(self):
         """ Get the type offset
         """
@@ -364,7 +431,8 @@ class DInfo():
         into a list.
         """
         tmp = self.dwarfinfo.line_program_for_CU(compile_unit).get_entries()
-        return [LineEntry(line_p) for line_p in tmp if line_p.state]
+        return [LineEntry(line_p) for line_p in tmp if line_p.state and not
+                line_p.state.end_sequence]
 
     @property
     def link_points(self):

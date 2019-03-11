@@ -69,7 +69,7 @@ def getter(queue):
     mem = queue.get(block=True)
     return mem
 
-def parse_loc_expr(locexpr, asm_mem, size=1):
+def parse_loc_expr(locexpr, asm_mem, dwarf_info, function, address, size=1):
     """ Parse a locexpr expression in order to return the values stored.
     """
     res = []
@@ -87,7 +87,18 @@ def parse_loc_expr(locexpr, asm_mem, size=1):
                 base_offset = local_locexpr.pop(0) - 128
                 for i in range(size):
                     offset =  base_offset + 4*(i)
-                    addr = asm_mem.registers[DWARF_VALUES[0x91]] + offset
+                    function = dwarf_info.get_subprog(function)
+                    frame_base = function.frame_base.value[0]
+                    if 0x50 <= frame_base <= 0x60:
+                        addr = asm_mem.registers[DWARF_VALUES[frame_base]] + offset
+                    elif frame_base == 0x9c:
+                        _res = dwarf_info.cfa_entries.interpret(address)
+                        if isinstance(_res, tuple):
+                            addr = asm_mem.registers[_res[0]] + _res[1] + offset
+                        else:
+                            raise Exception("Unsupported expression")
+                    else:
+                        raise Exception("Unsupported expression")
                     res.append(asm_mem.stack[addr])
             elif value == 0x9f:
                 continue
@@ -121,7 +132,7 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
             size = 1
         locexpr = variable_expr.find_entry(addr, start._start)
         if locexpr:
-            asm_value = parse_loc_expr(locexpr, asm_mem, size)
+            asm_value = parse_loc_expr(locexpr, asm_mem, dwarf_info, function, addr, size)
             if isinstance(value, dict):
                 i = 0
                 for val in sorted(value.keys()):
@@ -151,7 +162,7 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
                 else:
                     print(" c        : %s" % value.val)
             return False
-            #break
+            break
     return res
 
 def check_bpoint(addr, line, column, bpoints):
@@ -206,8 +217,12 @@ def main(file_c, file_asm, file_compiled):
                         print("ASM Memory")
                         print(asm_mem)
                         break
-        if not thread_c.is_alive() and not thread_asm.is_alive()\
+        #print("C Queue %s" % CQueue.empty())
+        #print("Asm Queue %s" % AsmQueue.empty())
+        if (not thread_c.is_alive()) and (not thread_asm.is_alive())\
            and CQueue.empty() and AsmQueue.empty():
+            print(CQueue)
+            print(AsmQueue)
             break
     return result
 
