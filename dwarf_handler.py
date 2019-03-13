@@ -186,6 +186,7 @@ class Variable(Tag):
         Tag.__init__(self)
         self.tag = die.tag
         loc_lists = dwarfinfo.location_lists()
+        self.at_location = False
         for attr in itervalues(die.attributes):
             if attr.name == "DW_AT_name":
                 self.name = attr.value.decode('utf-8')
@@ -200,6 +201,8 @@ class Variable(Tag):
                 self.decl_line = attr.value
             elif attr.name == "DW_AT_type":
                 self.type = attr.value
+            elif attr.name == "DW_AT_const_value":
+                self.const_value = attr.value
 
     def lookup_location_updates(self):
         """ Lookup for a location update.
@@ -211,8 +214,10 @@ class Variable(Tag):
         """
         if isinstance(self.at_location, list):
             for location in self.at_location:
-                if start + location.begin_offset <= addr <= start + location.end_offset:
-                    return location
+                if location.begin_offset <= addr <= location.end_offset:
+                    return location.loc_expr
+        elif "const_value" in self.__dict__:
+            return self.const_value
         else:
             return self.at_location.value
         return None

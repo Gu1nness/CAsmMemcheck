@@ -101,9 +101,11 @@ def parse_loc_expr(locexpr, asm_mem, dwarf_info, function, address, size=1):
                         raise Exception("Unsupported expression")
                     res.append(asm_mem.stack[addr])
             elif value == 0x9f:
-                continue
+                res.append(current)
             elif 0x50 <= value <= 0x6f:
                 current = asm_mem.registers[DWARF_VALUES[value]]
+            elif 0x30 <= value <= 0x4f:
+                current = value - 0x30
         else:
             break
     return res
@@ -132,7 +134,10 @@ def compare_mems(addr, c_mem, asm_mem, dwarf_info, functions):
             size = 1
         locexpr = variable_expr.find_entry(addr, start._start)
         if locexpr:
-            asm_value = parse_loc_expr(locexpr, asm_mem, dwarf_info, function, addr, size)
+            if isinstance(locexpr, int):
+                asm_value = [locexpr]
+            else:
+                asm_value = parse_loc_expr(locexpr, asm_mem, dwarf_info, function, addr, size)
             if isinstance(value, dict):
                 i = 0
                 for val in sorted(value.keys()):

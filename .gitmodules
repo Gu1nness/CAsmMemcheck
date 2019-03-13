@@ -1,6 +1,6 @@
 [submodule "CInterpreter"]
 	path = CInterpreter
-	url = git@github.com:Gu1nness/CInterpreter.git
+	url = https://github.com/Gu1nness/CInterpreter.git
 [submodule "AsmInterpreter"]
 	path = AsmInterpreter
-	url = git@github.com:Gu1nness:AsmInterpreter.git
+	url = https://github.com/Gu1nness/AsmInterpreter.git
