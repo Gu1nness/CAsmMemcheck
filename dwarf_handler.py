@@ -103,6 +103,9 @@ class CompileUnitTree():
         self.res_start = {}
         self.res_end = {}
         cu_root = compile_unit.get_top_DIE()
+        for attr in cu_root.attributes.values():
+            if attr.name == "DW_AT_low_pc":
+                self.low_pc = attr.value
         for die in cu_root.iter_children():
             # Go over all attributes of the DIE. Each attribute is an
             # AttributeValue object (from elftools.dwarf.die), which we
@@ -114,12 +117,14 @@ class CompileUnitTree():
                     if children.tag == "DW_TAG_variable":
                         variable = Variable(children,
                                             dwarfinfo,
-                                            compile_unit['version'])
+                                            compile_unit['version'],
+                                            self.low_pc)
                         self.subprograms[subprog][variable.name] = variable
             elif die.tag == "DW_TAG_structure_type":
                 self.structures.append(Structure(die))
             elif die.tag == "DW_TAG_base_type":
                 self.base_type = die.offset
+
 
     @property
     def get_structs(self):
@@ -182,9 +187,10 @@ class SubProgram(Tag):
 class Variable(Tag):
     """ Describes a DW_TAG_variable.
     """
-    def __init__(self, die, dwarfinfo, version):
+    def __init__(self, die, dwarfinfo, version, low_pc):
         Tag.__init__(self)
         self.tag = die.tag
+        self.low_pc = low_pc
         loc_lists = dwarfinfo.location_lists()
         self.at_location = False
         for attr in itervalues(die.attributes):
@@ -193,6 +199,7 @@ class Variable(Tag):
             if attribute_has_location_list(attr,
                                            version):
                 self.at_location = loc_lists.get_location_list_at_offset(attr.value)
+                tmp = ['0x%04x' % i.begin_offset for i in self.at_location]
                 self.form = 'sec_offset'
             elif attr.name == "DW_AT_location":
                 self.at_location = attr
@@ -214,7 +221,7 @@ class Variable(Tag):
         """
         if isinstance(self.at_location, list):
             for location in self.at_location:
-                if location.begin_offset <= addr <= location.end_offset:
+                if self.low_pc + location.begin_offset <= addr <= self.low_pc + location.end_offset:
                     return location.loc_expr
         elif "const_value" in self.__dict__:
             return self.const_value
