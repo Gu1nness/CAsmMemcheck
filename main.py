@@ -73,15 +73,17 @@ def parse_loc_expr(locexpr, asm_mem, dwarf_info, function, address, size=1):
     """ Parse a locexpr expression in order to return the values stored.
     """
     res = []
-    current = -1
+    current = []
     local_locexpr = deepcopy(locexpr)
     while True:
         if local_locexpr:
             value = local_locexpr.pop(0)
-            if value in [0x10, 0x11]:
-                current = local_locexpr.pop(0)
+            if 0x08 <= value <= 0x0f:
+                current.append(local_locexpr.pop(0))
+            elif value in [0x10, 0x11]:
+                current.append(local_locexpr.pop(0))
             elif value == 0x93:
-                res.append(current)
+                res.append(current.pop())
                 _ = local_locexpr.pop(0)
             elif value == 0x91:
                 base_offset = local_locexpr.pop(0) - 128
@@ -101,13 +103,24 @@ def parse_loc_expr(locexpr, asm_mem, dwarf_info, function, address, size=1):
                         raise Exception("Unsupported expression")
                     res.append(asm_mem.stack[addr])
             elif value == 0x9f:
-                res.append(current)
+                continue
             elif 0x50 <= value <= 0x6f:
-                current = asm_mem.registers[DWARF_VALUES[value]]
+                print("Register \o/")
+                current.append(asm_mem.registers[DWARF_VALUES[value]])
+            elif 0x50 <= value - 0x20 <= 0x6f:
+                current.append(asm_mem.registers[DWARF_VALUES[value-0x20]])
+                local_locexpr.pop(0)
             elif 0x30 <= value <= 0x4f:
-                current = value - 0x30
+                current.append(value - 0x30)
+                print(current)
+            elif value == 0x1c:
+                first = current.pop()
+                second = current.pop()
+                current.append(second - first)
         else:
             break
+    if current:
+        res.append(current.pop())
     return res
 
 

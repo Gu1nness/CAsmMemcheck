@@ -17,11 +17,11 @@ DWARF_VALUES = {
     0x11 : "DW_OP_consts",
     0x9f : "DW_OP_stack_value",
     0x50 : "rax",
-    0x51 : "rbx",
+    0x51 : "rdx",
     0x52 : "rcx",
-    0x53 : "rdx",
-    0x54 : "rdi",
-    0x55 : "rsi",
+    0x53 : "rbx",
+    0x54 : "rsi",
+    0x55 : "rdi",
     0x56 : "rbp",
     0x57 : "rsp",
     0x58 : "r8",
@@ -219,10 +219,12 @@ class Variable(Tag):
     def find_entry(self, addr, start):
         """ Find the location list entry corresponding to the address.
         """
+        print(self.at_location)
         if isinstance(self.at_location, list):
             for location in self.at_location:
-                if self.low_pc + location.begin_offset <= addr <= self.low_pc + location.end_offset:
+                if self.low_pc + location.begin_offset <= addr < self.low_pc + location.end_offset:
                     return location.loc_expr
+            return None
         elif "const_value" in self.__dict__:
             return self.const_value
         else:
