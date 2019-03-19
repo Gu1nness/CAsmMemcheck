@@ -219,7 +219,6 @@ class Variable(Tag):
     def find_entry(self, addr, start):
         """ Find the location list entry corresponding to the address.
         """
-        print(self.at_location)
         if isinstance(self.at_location, list):
             for location in self.at_location:
                 if self.low_pc + location.begin_offset <= addr < self.low_pc + location.end_offset:
@@ -228,7 +227,8 @@ class Variable(Tag):
         elif "const_value" in self.__dict__:
             return self.const_value
         else:
-            return self.at_location.value
+            if not isinstance(self.at_location, bool):
+                return self.at_location.value
         return None
 
 
